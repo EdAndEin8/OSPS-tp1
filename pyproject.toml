@@ -1,0 +1,17 @@
+[project]
+name = "tp-1-anton-dion"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Anton Dion", email = "ed.and.ein@proton.me" }
+]
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+tp-1-anton-dion = "tp_1_anton_dion:main"
+
+[build-system]
+requires = ["uv_build>=0.12.10,<0.13.0"]
+build-backend = "uv_build"
