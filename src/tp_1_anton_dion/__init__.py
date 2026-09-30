@@ -1,2 +1,7 @@
 def main() -> None:
-    print("Hello from tp-1-anton-dion!")
+    print("Lancement du projet python")
+
+    # MS
+
+if __name__ == "__main__":
+    main()
