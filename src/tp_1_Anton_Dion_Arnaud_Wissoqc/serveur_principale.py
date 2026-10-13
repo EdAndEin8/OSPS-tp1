@@ -12,28 +12,41 @@ def dad():
     """dad() est une fonction réservé au serveur principal. 
     """
     print("Lancement du père")
-    
+    #pipe_fifo
     try:
-        os.makefifo(fifo_path,o0600) # permission bits pour le fichier
+        os.makefifo(fifo_path,0o0600) # permission bits pour le fichier
     except FileExistsError: # retour le fichier n'existe
-        print(f"FIFO {fifo_path} already exists", file=sys.stderr)
+        raise FileExistsError(f"FIFO {fifo_path} already exists", file=sys.stderr)
     except OSError as e: # erreur de création 
-        print(f"Error creating FIFO: {e}", file=sys.stderr)
+        raise OSError(f"Error creating FIFO: {e}", file=sys.stderr)
+
+    print("Tentative du fifo")
+    #écriture fifo
+    try:
+        #ouverture
+        open(fifo_path,"w")
+    except FileExistsError:
+        raise FileExistsError(f"Error openning fifo: {e}",file=sys.stderr)
+    except OSError:
+        raise OSError(f"Error system process error while openning : {e}",file=sys.stderr)
     finally:
-        print("Tentative du fifo")
-        if os.path.exists(fifo_path): # vérification de la présence du fifo dans le système 
-            print("Fermeture du fifo")
+        #ecriture
+        texte=""
+    
+    if os.path.exists(fifo_path): # vérification de la présence du fifo dans le système 
+        print("Closing fifo")
 
-
-
+    
+    
+print
 
 def main() -> None:
     print("Lancement du projet python.\n" \
     "")
-    # MS avec fork 
-    ppid = os.fork()
+    # MemoryShared avec fork 
+    ppid = os.fork() 
     if (ppid < 0):
-        print()
+        print("Fork error")
     elif ppid == 0:
         son()
     else:
