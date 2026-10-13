@@ -10,15 +10,14 @@ def son():
 
 def dad():
     """dad() est une fonction réservé au serveur principal. 
-    
     """
     print("Lancement du père")
     
     try:
-        os.makefifo(fifo_path,o0600) # permission bits 
-    except FileExistsError: 
+        os.makefifo(fifo_path,o0600) # permission bits pour le fichier
+    except FileExistsError: # retour le fichier n'existe
         print(f"FIFO {fifo_path} already exists", file=sys.stderr)
-    except OSError as e:
+    except OSError as e: # erreur de création 
         print(f"Error creating FIFO: {e}", file=sys.stderr)
     finally:
         print("Tentative du fifo")
