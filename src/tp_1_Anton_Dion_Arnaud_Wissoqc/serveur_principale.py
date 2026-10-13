@@ -1,4 +1,5 @@
 # Travail de la Mise en place d’un segment mémoire partagé entre un serveur principal et un serveur secondaire
+# Connaitre la taille de pipe ou faire un flush 
 # lib
 import os 
 import sys
@@ -8,24 +9,62 @@ fifo2_path="/tmp/tube-tp1-securite-s" #fils -> père
 
 def create_fifo(fifo_path):
     try:
-        os.makefifo(fifo_path,0o0600) # permission bits pour le fichier
+        os.mkfifo(fifo_path,0o0600) # permission bits pour le fichier
         print("The FIFO was created at {fifo2_path}")
-    except FileExistsError: # retour le fichier n'existe
+    except FileExistsError as e: # retour le fichier n'existe
+        os.unlink(fifo_path)
         raise FileExistsError(f"FIFO {fifo_path} already exists")
     except OSError as e: # erreur de création 
         raise OSError(f"Error creating FIFO: {e}")
 
-def son(): #TODO what if : le tube est ouvert avant la creation 
+def son(): #TODO résoudre le problème de deadlock 
     """son() is the son on wukong 
     """
-    print("Launching the son")
+    print("Launching the son process")
 
-    # Ouverture des deux fifo
-    #fifo1 TODO
+    print("Tentative du fifo")
+    #Ouverture en écriture fifo1
     try:
-        
-    except:
+        #ouverture
+        fifo1 = open(fifo1_path,"r")
+    except FileExistsError as e:
+        raise FileExistsError(f"Error openning fifo 1 : {e}")
+    except OSError as e:
+        raise OSError(f"Error system process error while openning 2 : {e}")
 
+    #Ouverture en lecture fifo1
+    try:
+        #lecture
+        fifo2 = open(fifo2_path,"w")
+    except FileExistsError as e:
+        raise FileExistsError(f"Error openning fifo2: {e}")
+    except OSError as e:
+        raise OSError(f"Error system process error while openning 2 : {e}")
+
+    #Réception et envoie de message entre père et fils
+    for i in range(3):
+
+        print ('Processus secondaire prêt pour échanger des messages...')
+
+        print ('Processus secondaire en attente de réception de messages...')
+
+        line=fifo1.readline()
+        print ("Message recu : " + line)
+
+
+        print ('Écriture dans le tube2...');
+
+        fifo2.write("Message 1 du processus secondaire !\n")
+        fifo2.flush()
+
+
+    print ('Fermeture du tube1...');
+
+    fifo1.close()
+
+    print ('Fermeture du tube2...');
+
+    fifo2.close()
 
 def dad():
     """dad() est une fonction réservé au serveur principal. 
@@ -37,32 +76,47 @@ def dad():
     #Ouverture en écriture fifo1
     try:
         #ouverture
-        open(fifo1_path,"w")
-    except FileExistsError:
-        raise FileExistsError(f"Error openning fifo 1 : {e}",file=sys.stderr)
-    except OSError:
-        raise OSError(f"Error system process error while openning 2 : {e}",file=sys.stderr)
-    finally:
-        #ecriture
-        texte=""
+        fifo1 = open(fifo1_path,"w")
+    except FileExistsError as e:
+        raise FileExistsError(f"Error openning fifo 1 : {e}")
+    except OSError as e:
+        raise OSError(f"Error system process error while openning 2 : {e}")
+
+    texte=""
+
     print("Tentative du fifo")
     #Ouverture en lecture fifo1
     try:
         #lecture
-        open(fifo2_path,"r")
-    except FileExistsError:
-        raise FileExistsError(f"Error openning fifo2: {e}",file=sys.stderr)
-    except OSError:
-        raise OSError(f"Error system process error while openning 2 : {e}",file=sys.stderr)
-    finally:
-        #ecriture
-        texte=""
+        fifo2 = open(fifo2_path,"r")
+    except FileExistsError as e:
+        raise FileExistsError(f"Error openning fifo2: {e}")
+    except OSError as e:
+        raise OSError(f"Error system process error while openning 2 : {e}")
+
+    for i in range(3):
+
+        print ('Processus principal prêt pour échanger des messages...')
+
+        print ('Écriture dans le tube1...');
+
+        fifo1.write("Message 1 du processus principal !\n")
+        fifo1.flush() # Protection deadlock
+
+        print ('Processus principal en attente de réception de messages...')
+
+        line=fifo2.readline()
+        print("Message recu : " + line)
+
+    print ('Fermeture du tube1...');
+
+    fifo1.close()
+
+    print ('Fermeture du tube2...');
+
+    fifo2.close()
 
 
-    
-    
-
-    
 def main() -> None:
     print("Lancement du projet python.\n" \
     "")
