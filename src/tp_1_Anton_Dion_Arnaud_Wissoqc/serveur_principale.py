@@ -6,32 +6,33 @@ import sys
 fifo1_path="/tmp/tube-tp1-securite-f" #père -> fils 
 fifo2_path="/tmp/tube-tp1-securite-s" #fils -> père
 
+def create_fifo(fifo_path):
+    try:
+        os.makefifo(fifo_path,0o0600) # permission bits pour le fichier
+        print("The FIFO was created at {fifo2_path}")
+    except FileExistsError: # retour le fichier n'existe
+        raise FileExistsError(f"FIFO {fifo_path} already exists")
+    except OSError as e: # erreur de création 
+        raise OSError(f"Error creating FIFO: {e}")
 
-def son():
-    print("Lancement du fils")
+def son(): #TODO what if : le tube est ouvert avant la creation 
+    """son() is the son on wukong 
+    """
+    print("Launching the son")
+
+    # Ouverture des deux fifo
+    #fifo1 TODO
+    try:
+        
+    except:
+
 
 def dad():
     """dad() est une fonction réservé au serveur principal. 
+    Crée les deux fifo pour communiqué via de la Share mémory 
     """
-    print("Lancement du père")
-    #Creation des deux pipe 1 et 2 FIFO 
-    #fifo1
-    try:
-        os.makefifo(fifo1_path,0o0600) # permission bits pour le fichier
-        print("Second FIFO created at {fifo2_path}")
-    except FileExistsError: # retour le fichier n'existe
-        raise FileExistsError(f"FIFO {fifo1_path} already exists", file=sys.stderr)
-    except OSError as e: # erreur de création 
-        raise OSError(f"Error creating FIFO: {e}", file=sys.stderr)
-    #fifo2
-    try:
-        os.makefifo(fifo2_path,0o0600) # permission bits pour le fichier
-        print("Second FIFO created at {fifo2_path}")
-    except FileExistsError: # retour le fichier n'existe
-        raise FileExistsError(f"FIFO {fifo2_path} already exists", file=sys.stderr)
-    except OSError as e: # erreur de création 
-        raise OSError(f"Error creating FIFO: {e}", file=sys.stderr)
-    
+    print("Lauching the dad process")
+        
     print("Tentative du fifo")
     #Ouverture en écriture fifo1
     try:
@@ -59,18 +60,18 @@ def dad():
 
 
     
-    if os.path.exists(fifo1_path): # vérification de la présence du fifo dans le système 
-        print("Closing fifo")
-    if os.path.exists(fifo2_path): # vérification de la présence du fifo dans le système 
-            print("Closing fifo")
+    
 
     
-    
-print
-
 def main() -> None:
     print("Lancement du projet python.\n" \
     "")
+    print("Creation of the 2 pipe for the communication in between the two process.")
+    #Creation des deux pipe 1 et 2 FIFO 
+    #fifo1
+    create_fifo(fifo1_path)
+    #fifo2
+    create_fifo(fifo2_path)
     # MemoryShared avec fork 
     ppid = os.fork() 
     if (ppid < 0):
@@ -79,6 +80,12 @@ def main() -> None:
         son()
     else:
         dad()
+    if os.path.exists(fifo1_path): # vérification de la présence du fifo dans le système 
+            print("Closing fifo1")
+            os.unlink(fifo1_path)
+    if os.path.exists(fifo2_path): # vérification de la présence du fifo dans le système 
+            print("Closing fifo")
+            os.unlink(fifo2_path)
 
 
 if __name__ == "__main__":
