@@ -58,11 +58,11 @@ def son(): #TODO résoudre le problème de deadlock
         fifo2.flush()
 
 
-    print ('Fermeture du tube1...');
+    print ('Son: Closing fifo1...');
 
     fifo1.close()
 
-    print ('Fermeture du tube2...');
+    print ('Son: Closing fifo2...');
 
     fifo2.close()
 
@@ -81,8 +81,6 @@ def dad():
         raise FileExistsError(f"Error openning fifo 1 : {e}")
     except OSError as e:
         raise OSError(f"Error system process error while openning 2 : {e}")
-
-    texte=""
 
     print("Tentative du fifo")
     #Ouverture en lecture fifo1
@@ -108,11 +106,11 @@ def dad():
         line=fifo2.readline()
         print("Message recu : " + line)
 
-    print ('Fermeture du tube1...');
+    print ('Dad: Closing fifo1...');
 
     fifo1.close()
 
-    print ('Fermeture du tube2...');
+    print ('Dad: Closing fifo2...');
 
     fifo2.close()
 
@@ -138,7 +136,7 @@ def main() -> None:
             print("Closing fifo1")
             os.unlink(fifo1_path)
     if os.path.exists(fifo2_path): # vérification de la présence du fifo dans le système 
-            print("Closing fifo")
+            print("Closing fifo2")
             os.unlink(fifo2_path)
 
 
