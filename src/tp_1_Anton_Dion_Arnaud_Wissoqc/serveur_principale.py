@@ -6,6 +6,7 @@ import sys
 
 fifo1_path="/tmp/tube-tp1-securite-f" #père -> fils 
 fifo2_path="/tmp/tube-tp1-securite-s" #fils -> père
+fifo_list= [fifo1_path,fifo2_path]
 
 def create_fifo(path_list):
     """create fifo from a path list"""
@@ -78,7 +79,8 @@ def son():
     fifo2.close()
 
 def dad():
-    """dad() est une fonction réservé au serveur principal. 
+    """
+    dad() est une fonction réservé au serveur principal. 
     Crée les deux fifo pour communiqué via de la Share mémory 
     """
     print("Lauching the dad process")
@@ -130,23 +132,21 @@ def main() -> None:
     print("Lancement du projet python de Anton et Arnaud.\n--------------------------" \
     "")
     print("Creation of the 2 pipe for the communication in between the two process.")
-    #Creation des deux pipe 1 et 2 FIFO 
-    create_fifo([fifo1_path,fifo2_path])
-    
-    # MemoryShared avec fork 
-    ppid = os.fork() 
-    if (ppid < 0):
-        print("Fork error")
-    elif ppid == 0:
-        son()
-    else:
-        dad()
-    if os.path.exists(fifo1_path): # vérification de la présence du fifo dans le système 
-            print("Closing fifo1")
-            os.unlink(fifo1_path)
-    if os.path.exists(fifo2_path): # vérification de la présence du fifo dans le système 
-            print("Closing fifo2")
-            os.unlink(fifo2_path)
+    try:
+        #Creation des deux pipe 1 et 2 FIFO 
+        create_fifo([fifo1_path,fifo2_path])
+        
+        # MemoryShared avec fork 
+        ppid = os.fork() 
+        if (ppid < 0):
+            print("Fork error")
+        elif ppid == 0:
+            son()
+        else:
+            dad()
+        erase_fifo([fifo1_path,fifo1_path])
+    except KeyboardInterrupt as e:
+        erase_fifo(fifo_list)
 
 
 if __name__ == "__main__":
