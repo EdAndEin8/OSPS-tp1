@@ -7,17 +7,28 @@ import sys
 fifo1_path="/tmp/tube-tp1-securite-f" #père -> fils 
 fifo2_path="/tmp/tube-tp1-securite-s" #fils -> père
 
-def create_fifo(fifo_path):
-    try:
-        os.mkfifo(fifo_path,0o0600) # permission bits pour le fichier
-        print("The FIFO was created at {fifo2_path}")
-    except FileExistsError as e: # retour le fichier n'existe
-        os.unlink(fifo_path)
-        raise FileExistsError(f"FIFO {fifo_path} already exists")
-    except OSError as e: # erreur de création 
-        raise OSError(f"Error creating FIFO: {e}")
+def create_fifo(path_list):
+    """create fifo from a path list"""
+    for fifo_path in path_list:
+        try:
+            os.mkfifo(fifo_path,0o0600) # permission bits pour le fichier
+            print(f"sThe FIFO was created at {fifo_path}")
+        except FileExistsError as e: # retour le fichier n'existe
+            os.unlink(fifo_path)
+            raise FileExistsError(f"FIFO {fifo_path} already exists")
+        except OSError as e: # erreur de création 
+            raise OSError(f"Error creating FIFO: {e}")
 
-def son(): #TODO résoudre le problème de deadlock 
+def erase_fifo(path_list):
+    """
+    erase fifo from a list of path
+    """
+    for fifo_path in path_list:
+        if os.path.exists(fifo_path): # vérification de la présence du fifo dans le système 
+                    print(f"Closing the fifo from {fifo_path} .")
+                    os.unlink(fifo_path)
+
+def son():
     """son() is the son on wukong 
     """
     print("Launching the son process")
@@ -116,14 +127,12 @@ def dad():
 
 
 def main() -> None:
-    print("Lancement du projet python.\n" \
+    print("Lancement du projet python de Anton et Arnaud.\n--------------------------" \
     "")
     print("Creation of the 2 pipe for the communication in between the two process.")
     #Creation des deux pipe 1 et 2 FIFO 
-    #fifo1
-    create_fifo(fifo1_path)
-    #fifo2
-    create_fifo(fifo2_path)
+    create_fifo([fifo1_path,fifo2_path])
+    
     # MemoryShared avec fork 
     ppid = os.fork() 
     if (ppid < 0):
