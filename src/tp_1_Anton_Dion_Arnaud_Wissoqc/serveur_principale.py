@@ -3,9 +3,9 @@
 # lib
 import os 
 import sys
+import sysv_ipc
 
-fifo1_path="/tmp/tube-tp1-securite-f" #père -> fils 
-fifo2_path="/tmp/tube-tp1-securite-s" #fils -> père
+from config import fifo1_path, fifo2_path, SHARED_MEMORY_KEY
 
 def create_fifo(fifo_path):
     try:
@@ -54,7 +54,7 @@ def son():
 
         print ('Écriture dans le tube2...');
 
-        fifo2.write(f"Message {i} du processus secondaire !\n")
+        fifo2.write(f"pong {i}\n")
         fifo2.flush()
 
 
@@ -100,7 +100,7 @@ def dad():
 
         print ('Écriture dans le tube1...');
 
-        fifo1.write(f"Message {i} du processus principal !\n")
+        fifo1.write(f"ping {i}\n")
         fifo1.flush() # Protection deadlock
 
         print ('Processus principal en attente de réception de messages...')
@@ -121,12 +121,22 @@ def main() -> None:
     print("Lancement du projet python.\n" \
     "")
     print("Creation of the 2 pipe for the communication in between the two process.")
+
     #Creation des deux pipe 1 et 2 FIFO 
     #fifo1
     create_fifo(fifo1_path)
     #fifo2
     create_fifo(fifo2_path)
-    # MemoryShared avec fork 
+
+    # SharedMemory
+    try:
+        memory = sysv_ipc.SharedMemory(SHARED_MEMORY_KEY, sysv_ipc.IPC_CREX, size=1024)
+        print("[Writer] Segment de mémoire partagée créé avec succès.")
+    except sysv_ipc.ExistentialError:
+        # Si le segment existe déjà, on l'ouvre simplement
+        memory = sysv_ipc.SharedMemory(SHARED_MEMORY_KEY)
+        print("[Writer] Segment de mémoire partagée déjà existant, ouvert.")
+
     ppid = os.fork() 
     if (ppid < 0):
         print("Fork error")
