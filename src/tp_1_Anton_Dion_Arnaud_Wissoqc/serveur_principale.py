@@ -133,6 +133,16 @@ def main() -> None:
     print("Lancement du projet python de Anton et Arnaud.\n--------------------------" \
     "")
     print("Creation of the 2 pipe for the communication in between the two process.")
+
+    # SharedMemory
+    try:
+        memory = sysv_ipc.SharedMemory(SHARED_MEMORY_KEY, sysv_ipc.IPC_CREX, size=1024)
+        print("[Writer] Segment de mémoire partagée créé avec succès.")
+    except sysv_ipc.ExistentialError:
+        # Si le segment existe déjà, on l'ouvre simplement
+        memory = sysv_ipc.SharedMemory(SHARED_MEMORY_KEY)
+        print("[Writer] Segment de mémoire partagée déjà existant, ouvert.")
+
     try:
         #Creation des deux pipe 1 et 2 FIFO 
         create_fifo([fifo1_path,fifo2_path])
@@ -148,35 +158,6 @@ def main() -> None:
         erase_fifo([fifo1_path,fifo1_path])
     except KeyboardInterrupt as e:
         erase_fifo(fifo_list)
-
-    #Creation des deux pipe 1 et 2 FIFO 
-    #fifo1
-    create_fifo(fifo1_path)
-    #fifo2
-    create_fifo(fifo2_path)
-
-    # SharedMemory
-    try:
-        memory = sysv_ipc.SharedMemory(SHARED_MEMORY_KEY, sysv_ipc.IPC_CREX, size=1024)
-        print("[Writer] Segment de mémoire partagée créé avec succès.")
-    except sysv_ipc.ExistentialError:
-        # Si le segment existe déjà, on l'ouvre simplement
-        memory = sysv_ipc.SharedMemory(SHARED_MEMORY_KEY)
-        print("[Writer] Segment de mémoire partagée déjà existant, ouvert.")
-
-    ppid = os.fork() 
-    if (ppid < 0):
-        print("Fork error")
-    elif ppid == 0:
-        son()
-    else:
-        dad()
-    if os.path.exists(fifo1_path): # vérification de la présence du fifo dans le système 
-            print("Closing fifo1")
-            os.unlink(fifo1_path)
-    if os.path.exists(fifo2_path): # vérification de la présence du fifo dans le système 
-            print("Closing fifo")
-            os.unlink(fifo2_path)
 
 
 if __name__ == "__main__":
