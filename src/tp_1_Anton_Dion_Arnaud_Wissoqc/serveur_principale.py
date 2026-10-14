@@ -153,6 +153,7 @@ def main() -> None:
             print("Fork error")
         elif ppid == 0:
             son()
+            return
         else:
             dad()
         erase_fifo(fifo_list)
