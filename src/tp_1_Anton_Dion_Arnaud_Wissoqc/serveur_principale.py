@@ -145,7 +145,7 @@ def main() -> None:
 
     try:
         #Creation des deux pipe 1 et 2 FIFO 
-        create_fifo([fifo1_path,fifo2_path])
+        create_fifo(fifo_list)
         
         # MemoryShared avec fork 
         ppid = os.fork() 
@@ -155,7 +155,7 @@ def main() -> None:
             son()
         else:
             dad()
-        erase_fifo([fifo1_path,fifo1_path])
+        erase_fifo(fifo_list)
     except KeyboardInterrupt as e:
         erase_fifo(fifo_list)
 
