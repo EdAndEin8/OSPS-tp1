@@ -17,7 +17,7 @@ def create_fifo(fifo_path):
     except OSError as e: # erreur de création 
         raise OSError(f"Error creating FIFO: {e}")
 
-def son(): #TODO résoudre le problème de deadlock 
+def son():
     """son() is the son on wukong 
     """
     print("Launching the son process")
@@ -54,15 +54,15 @@ def son(): #TODO résoudre le problème de deadlock
 
         print ('Écriture dans le tube2...');
 
-        fifo2.write("Message 1 du processus secondaire !\n")
+        fifo2.write(f"Message {i} du processus secondaire !\n")
         fifo2.flush()
 
 
-    print ('Fermeture du tube1...');
+    print ('Fermeture du tube1...')
 
     fifo1.close()
 
-    print ('Fermeture du tube2...');
+    print ('Fermeture du tube2...')
 
     fifo2.close()
 
@@ -100,7 +100,7 @@ def dad():
 
         print ('Écriture dans le tube1...');
 
-        fifo1.write("Message 1 du processus principal !\n")
+        fifo1.write(f"Message {i} du processus principal !\n")
         fifo1.flush() # Protection deadlock
 
         print ('Processus principal en attente de réception de messages...')
@@ -108,11 +108,11 @@ def dad():
         line=fifo2.readline()
         print("Message recu : " + line)
 
-    print ('Fermeture du tube1...');
+    print ('Fermeture du tube1...')
 
     fifo1.close()
 
-    print ('Fermeture du tube2...');
+    print ('Fermeture du tube2...')
 
     fifo2.close()
 
@@ -143,4 +143,10 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try :
+        main()
+    except Exception as e:
+        os.unlink(fifo1_path)
+        os.unlink(fifo2_path)
+
+# Utiliser shared memory de SystemV MessageQueue
