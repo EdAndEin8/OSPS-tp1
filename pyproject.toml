@@ -8,10 +8,12 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = []
-
 [project.scripts]
-tp-1-anton-dion = "tp_1_anton_dion:main"
+tp-1-anton-dion = "tp_1_Anton_Dion_Arnaud_Wissoqc:main"
 
 [build-system]
 requires = ["uv_build>=0.12.10,<0.13.0"]
 build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "tp_1_Anton_Dion_Arnaud_Wissoqc"
