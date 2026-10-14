@@ -7,7 +7,9 @@ authors = [
     { name = "Anton Dion", email = "ed.and.ein@proton.me" }
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "sysv-ipc>=1.2.0",
+]
 [project.scripts]
 tp-1-anton-dion = "tp_1_Anton_Dion_Arnaud_Wissoqc:main"
 
