@@ -14,7 +14,7 @@ def create_fifo(path_list):
     for fifo_path in path_list:
         try:
             os.mkfifo(fifo_path,0o0600) # permission bits pour le fichier
-            print(f"sThe FIFO was created at {fifo_path}")
+            print(f"The FIFO was created at {fifo_path}")
         except FileExistsError as e: # retour le fichier n'existe
             os.unlink(fifo_path)
             raise FileExistsError(f"FIFO {fifo_path} already exists")
@@ -180,10 +180,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    try :
-        main()
-    except Exception as e:
-        os.unlink(fifo1_path)
-        os.unlink(fifo2_path)
+    main()
+    
 
 # Utiliser shared memory de SystemV MessageQueue
