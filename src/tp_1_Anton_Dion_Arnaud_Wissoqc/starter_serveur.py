@@ -34,10 +34,8 @@ def erase_fifo(path_list):
                     os.unlink(fifo_path)
 
 def start_servers() -> None:
-    print("Lancement du projet python de Anton et Arnaud.\n--------------------------" \
-    "")
-    print("Creation of the 2 pipe for the communication in between the two process.")
-
+    print("Lancement du projet python de Anton et Arnaud.\n--------------------------")
+    # Watchdog
     # SharedMemory
     try:
         memory = sysv_ipc.SharedMemory(SHARED_MEMORY_KEY, sysv_ipc.IPC_CREX, size=1024)
@@ -47,21 +45,27 @@ def start_servers() -> None:
         memory = sysv_ipc.SharedMemory(SHARED_MEMORY_KEY)
         print("[Writer] Segment de mémoire partagée déjà existant, ouvert.")
 
-    try:
-        #Creation des deux pipe 1 et 2 FIFO 
-        create_fifo(fifo_list)
-        
-        # MemoryShared avec fork 
-        ppid = os.fork() 
-        if (ppid < 0):
-            print("Fork error")
-        elif ppid == 0:
-            son = ServeurSecondaire()
-            son.start()
-            return
-        else:
-            dad = ServeurPrincipal()
-            dad.start()
-        erase_fifo(fifo_list)
-    except KeyboardInterrupt as e:
-        erase_fifo(fifo_list)
+    ppid_w= os.fork()
+    if ppid_w < 0 :
+         print("Fork error")
+    elif ppid_w == 0: # watchdog
+        pass #TODO
+    else: 
+        # Serveur principal
+        try:
+            #Creation des deux pipe 1 et 2 FIFO
+            print("Creation of the 2 pipe for the communication in between the two process.")
+            create_fifo(fifo_list)
+            ppid = os.fork() 
+            if (ppid < 0):
+                print("Fork error")
+            elif ppid == 0:
+                son = ServeurSecondaire()
+                son.start()
+                return
+            else:
+                dad = ServeurPrincipal()
+                dad.start()
+            erase_fifo(fifo_list)
+        except KeyboardInterrupt as e:
+            erase_fifo(fifo_list)
