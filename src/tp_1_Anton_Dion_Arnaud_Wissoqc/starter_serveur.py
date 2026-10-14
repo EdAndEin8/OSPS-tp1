@@ -1,3 +1,7 @@
+"""
+Watchdog fork le serveur principal. TODO
+Le serveur principal fork le serveur secondaire. 
+"""
 import os 
 import sys
 import sysv_ipc
