@@ -4,6 +4,7 @@
 import os 
 import sys
 import sysv_ipc
+import time
 
 from config import fifo1_path, fifo2_path, SHARED_MEMORY_KEY
 
@@ -18,8 +19,11 @@ class ServeurPrincipal:
         Crée les deux fifo pour communiqué via de la Share mémory 
         """
         print("Lauching the dad process")
-            
-        print("Tentative du fifo")
+
+        #SHARED MEMORY
+        memory = sysv_ipc.SharedMemory(SHARED_MEMORY_KEY)
+
+        # TUBES NOMMES
         #Ouverture en écriture fifo1
         try:
             #ouverture
@@ -28,9 +32,8 @@ class ServeurPrincipal:
             raise FileExistsError(f"Error openning fifo 1 : {e}")
         except OSError as e:
             raise OSError(f"Error system process error while openning 2 : {e}")
-
-        print("Tentative du fifo")
-        #Ouverture en lecture fifo1
+        
+        #Ouverture en lecture fifo2
         try:
             #lecture
             fifo2 = open(fifo2_path,"r")
@@ -41,17 +44,39 @@ class ServeurPrincipal:
 
         for i in range(3):
 
-            print ('Processus principal prêt pour échanger des messages...')
+            what_i_sent = b"ping \n"
 
-            print ('Écriture dans le tube1...');
+            memory.write(what_i_sent)
 
-            fifo1.write(f"ping {i}\n")
-            fifo1.flush() # Protection deadlock
+            time.sleep(1)
 
-            print ('Processus principal en attente de réception de messages...')
+            # Lecture des données du segment
+            raw_data = memory.read()
+            
+            # Nettoyage des octets nuls (\x00) de remplissage (padding)
+            clean_data = raw_data.rstrip(b'\x00')
 
-            line=fifo2.readline()
-            print("Message recu : " + line)
+            while raw_data == what_i_sent:
+                # Attente d'une seconde
+                time.sleep(1)
+
+                # Lecture des données du segment
+                raw_data = memory.read()
+                
+                # Nettoyage des octets nuls (\x00) de remplissage (padding)
+                clean_data = raw_data.rstrip(b'\x00')
+
+            print(f"[Writer] Données lues : {clean_data.decode()}")
+
+            # print ('Écriture dans le tube1...')
+
+            # fifo1.write(f"ping {i}\n")
+            # fifo1.flush() # Protection deadlock
+
+            # print ('Processus principal en attente de réception de messages...')
+
+            # line=fifo2.readline()
+            # print("Message recu : " + line)
 
         print ('Dad: Closing fifo1...');
 

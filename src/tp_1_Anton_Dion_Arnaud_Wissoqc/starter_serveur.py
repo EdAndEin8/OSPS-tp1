@@ -36,12 +36,11 @@ def start_servers() -> None:
 
     # SharedMemory
     try:
+        # Ouverture de la mémoire partagée avant utilisation
         memory = sysv_ipc.SharedMemory(SHARED_MEMORY_KEY, sysv_ipc.IPC_CREX, size=1024)
-        print("[Writer] Segment de mémoire partagée créé avec succès.")
+        print("Segment de mémoire partagée créé avec succès.")
     except sysv_ipc.ExistentialError:
-        # Si le segment existe déjà, on l'ouvre simplement
-        memory = sysv_ipc.SharedMemory(SHARED_MEMORY_KEY)
-        print("[Writer] Segment de mémoire partagée déjà existant, ouvert.")
+        print("Segment de mémoire partagée déjà existant, ouvert.")
 
     try:
         #Creation des deux pipe 1 et 2 FIFO 
