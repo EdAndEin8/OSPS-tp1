@@ -1,7 +1,9 @@
+from starter_serveur import start_servers
+
 def main() -> None:
     print("Lancement du projet python")
 
-    # MS
+    start_servers()
 
 if __name__ == "__main__":
     main()
