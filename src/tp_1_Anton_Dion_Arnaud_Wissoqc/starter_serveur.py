@@ -1,3 +1,7 @@
+"""
+Watchdog fork le serveur principal. TODO
+Le serveur principal fork le serveur secondaire. 
+"""
 import os 
 import sys
 import sysv_ipc
@@ -30,10 +34,8 @@ def erase_fifo(path_list):
                     os.unlink(fifo_path)
 
 def start_servers() -> None:
-    print("Lancement du projet python de Anton et Arnaud.\n--------------------------" \
-    "")
-    print("Creation of the 2 pipe for the communication in between the two process.")
-
+    print("Lancement du projet python de Anton et Arnaud.\n--------------------------")
+    # Watchdog
     # SharedMemory
     try:
         # Ouverture de la mémoire partagée avant utilisation
@@ -42,21 +44,27 @@ def start_servers() -> None:
     except sysv_ipc.ExistentialError:
         print("Segment de mémoire partagée déjà existant, ouvert.")
 
-    try:
-        #Creation des deux pipe 1 et 2 FIFO 
-        create_fifo(fifo_list)
-        
-        # MemoryShared avec fork 
-        ppid = os.fork() 
-        if (ppid < 0):
-            print("Fork error")
-        elif ppid == 0:
-            son = ServeurSecondaire()
-            son.start()
-            return
-        else:
-            dad = ServeurPrincipal()
-            dad.start()
-        erase_fifo(fifo_list)
-    except KeyboardInterrupt as e:
-        erase_fifo(fifo_list)
+    ppid_w= os.fork()
+    if ppid_w < 0 :
+         print("Fork error")
+    elif ppid_w == 0: # watchdog
+        pass #TODO
+    else: 
+        # Serveur principal
+        try:
+            #Creation des deux pipe 1 et 2 FIFO
+            print("Creation of the 2 pipe for the communication in between the two process.")
+            create_fifo(fifo_list)
+            ppid = os.fork() 
+            if (ppid < 0):
+                print("Fork error")
+            elif ppid == 0:
+                son = ServeurSecondaire()
+                son.start()
+                return
+            else:
+                dad = ServeurPrincipal()
+                dad.start()
+            erase_fifo(fifo_list)
+        except KeyboardInterrupt as e:
+            erase_fifo(fifo_list)
