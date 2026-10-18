@@ -1,11 +1,11 @@
-from config import fifo1_path, fifo2_path, SHARED_MEMORY_KEY
+from config import SHARED_MEMORY_KEY
 
 class ServeurSecondaire:
 
     def __init__(self):
         pass
 
-    def start(self):
+    def start(self, fifo1_path, fifo2_path):
         """son() is the son on wukong 
         """
         print("Launching the son process")
@@ -29,10 +29,10 @@ class ServeurSecondaire:
         except OSError as e:
             raise OSError(f"Error system process error while openning 2 : {e}")
 
+        print ('Processus secondaire prêt pour échanger des messages...')
+        
         #Réception et envoie de message entre père et fils
         for i in range(3):
-
-            print ('Processus secondaire prêt pour échanger des messages...')
 
             print ('Processus secondaire en attente de réception de messages...')
 
