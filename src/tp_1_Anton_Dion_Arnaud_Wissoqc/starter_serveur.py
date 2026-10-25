@@ -30,8 +30,3 @@ def start_servers() -> None:
         # Lancement du serveur principal
         dad = ServeurPrincipal()
         dad.start()
-
-
-        # Test de création d'un serveur secondaire
-        dad.open_secondary_server()
-                

@@ -2,16 +2,17 @@
 # Connaitre la taille de pipe ou faire un flush 
 # lib
 import os 
-import sys
+import socket, sys
 import sysv_ipc
 
 from serveur_secondaire import ServeurSecondaire
-from config import base_fifo_path_father_to_son, base_fifo_path_son_to_father, SHARED_MEMORY_KEY
+from config import base_fifo_path_father_to_son, base_fifo_path_son_to_father, SHARED_MEMORY_KEY, HOST, PORT
 
 class ServeurPrincipal:
 
     def __init__(self):
         self.opened_secondary_server_count = 0
+        self.created_fifo_list = []
 
     def start(self):
         """
@@ -21,12 +22,47 @@ class ServeurPrincipal:
         print("Lauching the dad process")
         # TODO créer la message queue avec le watchdog
 
+        # Création du socket :
+        mySocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+        try:
+            mySocket.bind((HOST, PORT))
+        except socket.error:
+            print ('\nImpossible d\'établir la liaison du socket à l\'adresse choisie ({}:{}) !\n'.format(HOST, PORT))
+            sys.exit()
+
+        try :
+            while True:
+                # Attente de la requête de connexion d'un client :
+                print ('Serveur prêt, en attente de requêtes sur {}:{}...'.format(HOST, PORT))
+                mySocket.listen(5)
+
+                connexion, adresse = mySocket.accept()
+                print ('Client connecté, adresse IP %s, port %s' % (adresse[0], adresse[1]))
+
+                pereOuFils = self.open_secondary_server(connexion, adresse)
+
+                print("c le pere ? " + str(pereOuFils))
+
+                if not pereOuFils:
+                    print("finito")
+                    return
+        except KeyboardInterrupt as e:
+            self.erase_fifo(self.created_fifo_list)
+
+            mySocket.close()
+            del mySocket
+
     def create_fifo(self, path_list):
         """create fifo from a path list"""
         for fifo_path in path_list:
             try:
                 os.mkfifo(fifo_path,0o0600) # permission bits pour le fichier
                 print(f"The FIFO was created at {fifo_path}")
+
+                # Ajout du fifo créé dans la liste
+                self.created_fifo_list.append(fifo_path)
+
             except FileExistsError as e: # retour le fichier n'existe
                 os.unlink(fifo_path)
                 raise FileExistsError(f"FIFO {fifo_path} already exists")
@@ -38,11 +74,20 @@ class ServeurPrincipal:
         erase fifo from a list of path
         """
         for fifo_path in path_list:
+
             if os.path.exists(fifo_path): # vérification de la présence du fifo dans le système 
                 print(f"Closing the fifo from {fifo_path} .")
                 os.unlink(fifo_path)
+
+                # SUppression du fifo de la liste
+                self.created_fifo_list.remove(fifo_path)
     
-    def open_secondary_server(self):
+    # Ouvre un serveur secondaire
+    def open_secondary_server(self, connexion, adresse) -> bool:
+        """
+        Permet d'instancier un serveur secondaire et de gérer la communication entre les 2
+        Renvoie un booléen pour savoir si c'est le père (True) ou le fils (False) qui a fini
+        """
         # Incrémenter le nb de serveur ouvert pour avoir plusieurs tubes en même temps
         self.opened_secondary_server_count +=1
         
@@ -56,65 +101,66 @@ class ServeurPrincipal:
         self.create_fifo(fifo_list)
         
         # Création d'un serveur secondaire
-        try:
-            ppid_w= os.fork()
-            if ppid_w < 0 :
-                print("Fork error")
-            elif ppid_w == 0: # Père
+        ppid_w= os.fork()
+        if ppid_w < 0 :
+            print("Fork error")
+        elif ppid_w == 0: # Père
 
-                #Ouverture en écriture fifo1
-                try:
-                    #ouverture du tube 1
-                    fifo1 = open(fifo1_path,"w")
-                except FileExistsError as e:
-                    raise FileExistsError(f"Error openning fifo 1 : {e}")
-                except OSError as e:
-                    raise OSError(f"Error system process error while openning 2 : {e}")
+            #Ouverture en écriture fifo1
+            try:
+                #ouverture du tube 1
+                fifo1 = open(fifo1_path,"w")
+            except FileExistsError as e:
+                raise FileExistsError(f"Error openning fifo 1 : {e}")
+            except OSError as e:
+                raise OSError(f"Error system process error while openning 2 : {e}")
 
-                #Ouverture en lecture fifo2
-                try:
-                    #lecture
-                    fifo2 = open(fifo2_path,"r")
-                except FileExistsError as e:
-                    raise FileExistsError(f"Error openning fifo2: {e}")
-                except OSError as e:
-                    raise OSError(f"Error system process error while openning 2 : {e}")
-        
-                print ('Processus principal prêt pour échanger des messages...')
+            #Ouverture en lecture fifo2
+            try:
+                #lecture
+                fifo2 = open(fifo2_path,"r")
+            except FileExistsError as e:
+                raise FileExistsError(f"Error openning fifo2: {e}")
+            except OSError as e:
+                raise OSError(f"Error system process error while openning 2 : {e}")
+    
+            print ('Processus principal prêt pour échanger des messages...')
 
-                # Envoi de messages au fils (test)
-                for i in range(3):
+            #Envoi de messages au fils
+            while True:
 
-                    print ('Écriture dans le tube1...');
+                line=fifo2.readline()
+                print("Message recu de serv secondaire : " + line)
 
-                    fifo1.write(f"ping {i}\n")
-                    fifo1.flush() # Protection deadlock
+                if  'FIN' in line.upper()  or line =='\n':
+                    break
 
-                    print ('Processus principal en attente de réception de messages...')
+                print ('Écriture dans le tube1...')
 
-                    line=fifo2.readline()
-                    print("Message recu : " + line)
+                fifo1.write(f"OK \n")
+                fifo1.flush() # Protection deadlock
 
-                print ('Dad: Closing fifo1...')
+                print ('Processus principal en attente de réception de messages...')
 
-                fifo1.close()
+            print ('Dad: Closing fifo1...')
 
-                print ('Dad: Closing fifo2...')
+            fifo1.close()
 
-                fifo2.close()
-                
-                # Suppression des pipes avant de quitter (sinon chiant)
-                self.erase_fifo(fifo_list)
-                return
+            print ('Dad: Closing fifo2...')
 
-
-            else:  # Fils
-                # Lancement du serveur secondaire
-                son = ServeurSecondaire()
-                son.start(fifo1_path, fifo2_path)
-                return
-        except KeyboardInterrupt as e:
+            fifo2.close()
+            
+            # Suppression des pipes avant de quitter
             self.erase_fifo(fifo_list)
+            return True
+
+
+        else:  # Fils
+            # Lancement du serveur secondaire
+            son = ServeurSecondaire()
+            son.start(fifo1_path, fifo2_path, connexion, adresse)
+            return False
+
     
 
 # Utiliser shared memory de SystemV MessageQueue
