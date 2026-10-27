@@ -1,42 +1,60 @@
-import socket, sys
-from config import base_fifo_path_father_to_son, base_fifo_path_son_to_father, SHARED_MEMORY_KEY, HOST, PORT
+"""Client: sends one line per message and displays the answers of the server.
+
+Run with: uv run tp-1-client
+"""
+import socket
+import sys
+
+from . import config
+from .outils import check_message, recv_line, send_line
+
+
+def main():
+    try:
+        mySocket = socket.create_connection((config.HOST, config.PORT), timeout=10)
+    except OSError as e:
+        print(f"Connexion impossible à {config.HOST}:{config.PORT} : {e}", file=sys.stderr)
+        return 1
+
+    with mySocket:
+        mySocket.settimeout(30)
+        reader = mySocket.makefile("rb")
+        try:
+            msgServeur = recv_line(reader)
+            if msgServeur == "FIN":
+                print("Connexion refusée : serveur plein.", file=sys.stderr)
+                return 1
+            print("Serveur>", msgServeur)
+
+            while True:
+                msgClient = input("Client> ")
+                if not msgClient:
+                    continue
+                try:
+                    check_message(msgClient)
+                except ValueError as e:
+                    print("Message refusé :", e)
+                    continue
+                send_line(mySocket, msgClient)
+                if msgClient.upper() == "FIN":
+                    print("Connexion terminée.")
+                    return 0
+
+                msgServeur = recv_line(reader)
+                if msgServeur == "FIN":
+                    print("Le serveur a fermé la connexion.")
+                    return 0
+                print("Serveur>", msgServeur)
+
+        except (OSError, ValueError) as e:
+            print("Erreur :", e, file=sys.stderr)
+            return 1
+        except (KeyboardInterrupt, EOFError):
+            print("\nConnexion interrompue.")
+            return 0
+        finally:
+            reader.close()
+
 
 if __name__ == "__main__":
-    # Ouverture du socket
-    mySocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
-    # Envoi d'une requête de connexion au serveur :
-    try:
-        mySocket.connect((HOST, PORT))
-    except socket.error:
-        print ("\nConnexion impossible à {}:{} !\n".format(HOST, PORT))
-        sys.exit()    
-
-    print ("Connexion établie avec le serveur de test ({}:{}).".format(HOST, PORT))
-
-    stopConnexion = False
-
-    while not stopConnexion:
-
-        # Reception message serv
-        msgServeurraw = mySocket.recv(1024)
-        msgServeur = msgServeurraw.decode('UTF-8')
-        if msgServeur.upper() == "FIN" or msgServeur == "":
-            stopConnexion = True
-            continue
-
-        print ("Serveur>", msgServeur)
-
-        # Envoi message du client
-        msgClient = input("Client> ")
-        msgClientEncoded = bytes(msgClient, 'UTF-8')
-        mySocket.send(msgClientEncoded)
-        if msgClient.upper() == "FIN" or msgClient == "":
-            stopConnexion = True
-            continue
-
-    # Fermeture du socket (i.e. de la connexion) :
-    print ("Connexion interrompue.")
-    mySocket.close()
-    del mySocket
-    sys.exit(0)
+    sys.exit(main())

@@ -1,110 +1,87 @@
-from config import SHARED_MEMORY_KEY
+"""Secondary server: handles the session of one client.
+
+The shared memory holds two counters (clients, messages). It is only read or
+written between a "REQ" -> "OK" exchange and a "REL" message on the pair of named
+pipes shared with the principal server: this is the mutual exclusion.
+"""
+import logging
+import os
+import select
+import struct
+
+from . import config
+from .outils import recv_line, send_line
+
+COUNTERS = struct.Struct("=QQ")
+
 
 class ServeurSecondaire:
 
-    def __init__(self):
-        pass
+    def __init__(self, memory, fifo_read, fifo_write):
+        self.memory = memory
+        self.fifo_read = fifo_read        # principal -> secondary
+        self.fifo_write = fifo_write      # secondary -> principal
 
-    def start(self, fifo1_path, fifo2_path, connexion, adresse):
-        """
-        """
-        print("Launching the son process")
+    def lock(self):
+        """Ask the principal server for the exclusive access to the shared memory."""
+        os.write(self.fifo_write, b"REQ\n")
+        ready, _, _ = select.select([self.fifo_read], [], [], config.LOCK_TIMEOUT)
+        if not ready:
+            raise TimeoutError("no answer from the principal server")
+        if os.read(self.fifo_read, 16) != b"OK\n":     # b"" when the principal is gone
+            raise ConnectionError("bad answer from the principal server")
 
-        print("Tentative du fifo")
-        #Ouverture en écriture fifo1
+    def unlock(self):
+        os.write(self.fifo_write, b"REL\n")
+
+    def update_counters(self, new_client=0, new_message=0):
+        """Add to the counters in shared memory and return their new values."""
+        self.lock()
         try:
-            #ouverture
-            fifo1 = open(fifo1_path,"r")
-        except FileExistsError as e:
-            raise FileExistsError(f"Error openning fifo 1 : {e}")
-        except OSError as e:
-            raise OSError(f"Error system process error while openning 1 : {e}")
+            clients, messages = COUNTERS.unpack(self.memory.read(COUNTERS.size))
+            clients += new_client
+            messages += new_message
+            self.memory.write(COUNTERS.pack(clients, messages))
+        finally:
+            self.unlock()                 # the access is released even after an error
+        return clients, messages
 
-        #Ouverture en lecture fifo1
+    def start(self, connexion, adresse):
+        """Run the session and return the exit code of the process."""
+        client = f"{adresse[0]}:{adresse[1]}"
+        connexion.settimeout(config.CLIENT_TIMEOUT)    # a silent client cannot block forever
+        reader = connexion.makefile("rb")
         try:
-            #lecture
-            fifo2 = open(fifo2_path,"w")
-        except FileExistsError as e:
-            raise FileExistsError(f"Error openning fifo2: {e}")
+            clients, _ = self.update_counters(new_client=1)
+            send_line(connexion, f"Bienvenue, vous êtes le client n°{clients}. "
+                                 "Envoyez vos messages (une ligne) ou FIN pour terminer.")
+            while True:
+                msgClient = recv_line(reader)
+                if msgClient.upper() == "FIN":        # exact word: "FINANCE" is a message
+                    logging.info("client %s ended the session", client)
+                    return 0
+                _, messages = self.update_counters(new_message=1)
+                # Only the size is logged, not the content (data minimisation).
+                logging.info("client %s: message of %d characters", client, len(msgClient))
+                send_line(connexion, f"Message n°{messages} reçu ({len(msgClient)} caractères)")
+        except (OSError, ValueError) as e:            # includes timeouts and disconnections
+            logging.warning("client %s: session closed (%r)", client, str(e)[:80])
+            self.say_goodbye(connexion)
+            return 1
+        except KeyboardInterrupt:
+            self.say_goodbye(connexion)
+            return 0
+        finally:
+            reader.close()
+            connexion.close()
+            os.close(self.fifo_read)
+            os.close(self.fifo_write)
+
+    @staticmethod
+    def say_goodbye(connexion):
+        """Tell the client that the session is over, if it is still connected."""
+        try:
+            connexion.settimeout(1)
+            send_line(connexion, "FIN")
         except OSError as e:
-            raise OSError(f"Error system process error while openning 2 : {e}")
-
-        print ('Processus secondaire prêt pour échanger des messages...')
-        
-        #Réception et envoie de message entre père et fils
-        # for i in range(3):
-
-        #     print ('Processus secondaire en attente de réception de messages...')
-
-        #     line=fifo1.readline()
-        #     print ("Message recu : " + line)
-
-
-        #     print ('Écriture dans le tube2...');
-
-        #     fifo2.write(f"pong {i}\n")
-        #     fifo2.flush()
-
-        # Envoi d'un premier texte au client pour dire commencer la discussion
-        connexion.send(bytes('Vous etes connecte au serveur de test. Envoyez vos messages (sur une ligne) ou le mot FIN pour terminer.', 'UTF-8'))
-
-        stopConnexion = False
-
-        # Boucle de discussion avec le client
-        while not stopConnexion:
-
-            # Réception et décodage du message
-            msgClientraw = connexion.recv(1024)
-            msgClient = msgClientraw.decode('UTF-8')
-            print ('Client>', msgClient)
-
-            # Si client demande la fin, on arrete tout
-            if msgClient.upper() == 'FIN' or msgClient =='':
-                # Envoi du message de fin au serv principal
-                fifo2.write(msgClient + "\n")
-                fifo2.flush()
-                # Pas besoin d'envoyer au client, il sait déjà
-                stopConnexion = True
-                continue
-
-            msgServeur = input('Serveur> ')
-
-            # Si serveur demande la fin, on arrete tout
-            if msgServeur.upper() == 'FIN' or msgServeur =='':
-
-                # Envoi du message de fin au serv principal
-                fifo2.write(msgServeur + "\n")
-                fifo2.flush()
-
-                # Envoi du message de fin auclienterv principal
-                msgServeurEncoded = bytes("FIN", 'UTF-8')
-                connexion.send(msgServeurEncoded)
-                stopConnexion = True
-                continue
-            
-            # Envoi du message reçu au serv principal
-            fifo2.write(msgServeur + "\n")
-            fifo2.flush()
-
-            # En attente du message "OK" du serv principal
-            line=fifo1.readline()
-
-            # SI serv principal pas ok, on envoie la fin au client
-            if "OK" not in line:
-                msgServeurEncoded = bytes("FIN", 'UTF-8')
-                connexion.send(msgServeurEncoded)
-                stopConnexion = True
-                continue
-
-            # Si serv principal ok, on envoie le message au client
-            msgServeurEncoded = bytes(msgServeur, 'UTF-8')
-            connexion.send(msgServeurEncoded)
-
-
-        print ('Son: Closing fifo1...')
-
-        fifo1.close()
-
-        print ('Son: Closing fifo2...')
-
-        fifo2.close()
+            logging.debug("FIN not sent: %s", e)

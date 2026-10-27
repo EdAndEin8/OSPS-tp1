@@ -1,166 +1,215 @@
-# Travail de la Mise en place d’un segment mémoire partagé entre un serveur principal et un serveur secondaire
-# Connaitre la taille de pipe ou faire un flush 
-# lib
-import os 
-import socket, sys
-import sysv_ipc
+"""Principal server: accepts the clients and manages the mutual exclusion.
 
-from serveur_secondaire import ServeurSecondaire
-from config import base_fifo_path_father_to_son, base_fifo_path_son_to_father, SHARED_MEMORY_KEY, HOST, PORT
+For each client a secondary server is forked. Both are connected by a pair of
+named pipes:
+    fifo-p2s   principal -> secondary   "OK"  (access granted)
+    fifo-s2p   secondary -> principal   "REQ" (access requested), "REL" (access released)
+
+The principal server watches every pipe with select(). It answers "OK" to a
+"REQ" only when nobody holds the access to the shared memory; otherwise the
+request waits in a queue (first come, first served).
+"""
+import logging
+import os
+import select
+import socket
+import time
+
+from . import config
+from .serveur_secondaire import ServeurSecondaire
+
 
 class ServeurPrincipal:
 
-    def __init__(self):
-        self.opened_secondary_server_count = 0
-        self.created_fifo_list = []
+    def __init__(self, memory, fifo_dir):
+        self.memory = memory
+        self.fifo_dir = fifo_dir    # private directory created by the watchdog
+        self.server = None
+        self.count = 0              # used to give a different name to each pair of pipes
+        self.children = set()       # PIDs of the secondary servers not collected yet
+        self.secondaries = {}       # PID -> (read end of fifo-s2p, write end of fifo-p2s)
+        self.fd_to_pid = {}         # read end of fifo-s2p -> PID
+        self.waiting = []           # PIDs waiting for the shared memory
+        self.holder = None          # PID that holds the shared memory, or None
 
     def start(self):
-        """
-        dad() est une fonction réservé au serveur principal. 
-        Crée les deux fifo pour communiquer via des tubes nommés
-        """
-        print("Lauching the dad process")
-        # TODO créer la message queue avec le watchdog
-
-        # Création du socket :
-        mySocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
+        """Serve the clients until Ctrl+C. Return the exit code of the process."""
         try:
-            mySocket.bind((HOST, PORT))
-        except socket.error:
-            print ('\nImpossible d\'établir la liaison du socket à l\'adresse choisie ({}:{}) !\n'.format(HOST, PORT))
-            sys.exit()
-
-        try :
+            self.server = socket.create_server((config.HOST, config.PORT))
+        except OSError as e:
+            logging.error("cannot listen on %s:%d: %s", config.HOST, config.PORT, e)
+            return 1
+        self.server.setblocking(False)
+        logging.info("principal server ready on %s:%d", config.HOST, config.PORT)
+        try:
             while True:
-                # Attente de la requête de connexion d'un client :
-                print ('Serveur prêt, en attente de requêtes sur {}:{}...'.format(HOST, PORT))
-                mySocket.listen(5)
+                watched = [self.server, *self.fd_to_pid]
+                ready, _, _ = select.select(watched, [], [], 1.0)
+                for item in ready:
+                    if item is self.server:
+                        self.accept_client()
+                    elif item in self.fd_to_pid:        # may have been closed meanwhile
+                        self.read_fifo(item)
+                self.collect_children()
+                self.give_access()
+        except KeyboardInterrupt:
+            logging.info("principal server stopped")
+            return 0
+        finally:
+            self.stop()
 
-                connexion, adresse = mySocket.accept()
-                print ('Client connecté, adresse IP %s, port %s' % (adresse[0], adresse[1]))
+    # ---------------------------------------------------------------- clients
 
-                pereOuFils = self.open_secondary_server(connexion, adresse)
-
-                print("c le pere ? " + str(pereOuFils))
-
-                if not pereOuFils:
-                    print("finito")
-                    return
-        except KeyboardInterrupt as e:
-            self.erase_fifo(self.created_fifo_list)
-
-            mySocket.close()
-            del mySocket
-
-    def create_fifo(self, path_list):
-        """create fifo from a path list"""
-        for fifo_path in path_list:
+    def accept_client(self):
+        try:
+            connexion, adresse = self.server.accept()
+        except BlockingIOError:
+            return
+        with connexion:              # the principal never keeps the client socket
+            if len(self.children) >= config.MAX_CLIENTS:
+                logging.warning("client %s:%d refused: too many clients", *adresse)
+                try:
+                    connexion.sendall(b"FIN\n")
+                except OSError as e:
+                    logging.debug("refusal not sent: %s", e)
+                return
             try:
-                os.mkfifo(fifo_path,0o0600) # permission bits pour le fichier
-                print(f"The FIFO was created at {fifo_path}")
-
-                # Ajout du fifo créé dans la liste
-                self.created_fifo_list.append(fifo_path)
-
-            except FileExistsError as e: # retour le fichier n'existe
-                os.unlink(fifo_path)
-                raise FileExistsError(f"FIFO {fifo_path} already exists")
-            except OSError as e: # erreur de création 
-                raise OSError(f"Error creating FIFO: {e}")
-            
-    def erase_fifo(self, path_list):
-        """
-        erase fifo from a list of path
-        """
-        for fifo_path in path_list:
-
-            if os.path.exists(fifo_path): # vérification de la présence du fifo dans le système 
-                print(f"Closing the fifo from {fifo_path} .")
-                os.unlink(fifo_path)
-
-                # SUppression du fifo de la liste
-                self.created_fifo_list.remove(fifo_path)
-    
-    # Ouvre un serveur secondaire
-    def open_secondary_server(self, connexion, adresse) -> bool:
-        """
-        Permet d'instancier un serveur secondaire et de gérer la communication entre les 2
-        Renvoie un booléen pour savoir si c'est le père (True) ou le fils (False) qui a fini
-        """
-        # Incrémenter le nb de serveur ouvert pour avoir plusieurs tubes en même temps
-        self.opened_secondary_server_count +=1
-        
-        print("Tentative du fifo")
-
-        # Création des 2 tubes nommés
-        fifo1_path = base_fifo_path_father_to_son + str(self.opened_secondary_server_count)
-        fifo2_path = base_fifo_path_son_to_father + str(self.opened_secondary_server_count)
-        fifo_list = [fifo1_path, fifo2_path]
-
-        self.create_fifo(fifo_list)
-        
-        # Création d'un serveur secondaire
-        ppid_w= os.fork()
-        if ppid_w < 0 :
-            print("Fork error")
-        elif ppid_w == 0: # Père
-
-            #Ouverture en écriture fifo1
-            try:
-                #ouverture du tube 1
-                fifo1 = open(fifo1_path,"w")
-            except FileExistsError as e:
-                raise FileExistsError(f"Error openning fifo 1 : {e}")
+                self.open_secondary_server(connexion, adresse)
             except OSError as e:
-                raise OSError(f"Error system process error while openning 2 : {e}")
+                logging.error("cannot start a secondary server: %s", e)
 
-            #Ouverture en lecture fifo2
+    def create_fifos(self):
+        """Create the pair of named pipes of a new secondary and open the four ends.
+
+        The ends are opened before fork(), each read end first and in non-blocking
+        mode, so no open() blocks (no deadlock between the two processes). The
+        names are removed right away: the opened descriptors stay usable.
+        """
+        self.count += 1
+        p2s = os.path.join(self.fifo_dir, f"fifo-p2s-{self.count}")
+        s2p = os.path.join(self.fifo_dir, f"fifo-s2p-{self.count}")
+        os.mkfifo(p2s, 0o600)
+        os.mkfifo(s2p, 0o600)
+        fds = []
+        try:
+            for path in (p2s, s2p):
+                fds.append(os.open(path, os.O_RDONLY | os.O_NONBLOCK))
+                fds.append(os.open(path, os.O_WRONLY))
+        except OSError:
+            for fd in fds:
+                os.close(fd)
+            raise
+        finally:
+            os.unlink(p2s)
+            os.unlink(s2p)
+        return fds       # p2s_read, p2s_write, s2p_read, s2p_write
+
+    def open_secondary_server(self, connexion, adresse):
+        p2s_read, p2s_write, s2p_read, s2p_write = self.create_fifos()
+        try:
+            pid = os.fork()
+        except OSError:
+            for fd in (p2s_read, p2s_write, s2p_read, s2p_write):
+                os.close(fd)
+            raise
+
+        if pid == 0:     # child: secondary server
+            code = 1
             try:
-                #lecture
-                fifo2 = open(fifo2_path,"r")
-            except FileExistsError as e:
-                raise FileExistsError(f"Error openning fifo2: {e}")
+                # Close everything that belongs to the principal server or to the
+                # other secondaries: the child only keeps its client and its pipes.
+                self.server.close()
+                os.close(p2s_write)
+                os.close(s2p_read)
+                for fifo_read, fifo_write in self.secondaries.values():
+                    os.close(fifo_read)
+                    os.close(fifo_write)
+                son = ServeurSecondaire(self.memory, p2s_read, s2p_write)
+                code = son.start(connexion, adresse)
+            except BaseException:
+                logging.exception("secondary server crashed")
+            finally:
+                os._exit(code)   # never go back into the loop of the principal server
+
+        # parent: principal server
+        os.close(p2s_read)
+        os.close(s2p_write)
+        self.children.add(pid)
+        self.secondaries[pid] = (s2p_read, p2s_write)
+        self.fd_to_pid[s2p_read] = pid
+        logging.info("client %s:%d -> secondary server %d", *adresse, pid)
+
+    # ------------------------------------------------------- mutual exclusion
+
+    def read_fifo(self, fd):
+        pid = self.fd_to_pid[fd]
+        try:
+            data = os.read(fd, 64)
+        except BlockingIOError:
+            return
+        if not data:                     # the secondary closed its pipe
+            self.close_fifos(pid)
+            return
+        for command in data.decode("ascii", errors="replace").split():
+            if command == "REQ" and pid != self.holder and pid not in self.waiting:
+                self.waiting.append(pid)
+            elif command == "REL" and pid == self.holder:
+                self.holder = None
+            else:
+                logging.warning("secondary server %d: invalid message, pipes closed", pid)
+                self.close_fifos(pid)
+                return
+
+    def give_access(self):
+        """Give the shared memory to the first waiting secondary when it is free."""
+        while self.holder is None and self.waiting:
+            pid = self.waiting.pop(0)
+            if pid not in self.secondaries:
+                continue
+            try:
+                os.write(self.secondaries[pid][1], b"OK\n")
+                self.holder = pid
             except OSError as e:
-                raise OSError(f"Error system process error while openning 2 : {e}")
-    
-            print ('Processus principal prêt pour échanger des messages...')
+                logging.warning("secondary server %d unreachable: %s", pid, e)
+                self.close_fifos(pid)
 
-            #Envoi de messages au fils
-            while True:
+    def close_fifos(self, pid):
+        ends = self.secondaries.pop(pid, None)
+        if ends is None:
+            return
+        del self.fd_to_pid[ends[0]]
+        os.close(ends[0])
+        os.close(ends[1])
+        if pid in self.waiting:
+            self.waiting.remove(pid)
 
-                line=fifo2.readline()
-                print("Message recu de serv secondaire : " + line)
+    # ------------------------------------------------------- end of processes
 
-                if  'FIN' in line.upper()  or line =='\n':
-                    break
+    def collect_children(self):
+        """Collect the finished secondaries (no zombie processes)."""
+        while self.children:
+            pid, status = os.waitpid(-1, os.WNOHANG)
+            if pid == 0:
+                return
+            self.children.discard(pid)
+            self.close_fifos(pid)
+            if pid == self.holder:
+                # Freed only now that the process is gone: two processes can never
+                # use the shared memory at the same time.
+                logging.warning("secondary server %d ended while holding the access", pid)
+                self.holder = None
+            logging.info("secondary server %d ended (code %d)",
+                         pid, os.waitstatus_to_exitcode(status))
 
-                print ('Écriture dans le tube1...')
-
-                fifo1.write(f"OK \n")
-                fifo1.flush() # Protection deadlock
-
-                print ('Processus principal en attente de réception de messages...')
-
-            print ('Dad: Closing fifo1...')
-
-            fifo1.close()
-
-            print ('Dad: Closing fifo2...')
-
-            fifo2.close()
-            
-            # Suppression des pipes avant de quitter
-            self.erase_fifo(fifo_list)
-            return True
-
-
-        else:  # Fils
-            # Lancement du serveur secondaire
-            son = ServeurSecondaire()
-            son.start(fifo1_path, fifo2_path, connexion, adresse)
-            return False
-
-    
-
-# Utiliser shared memory de SystemV MessageQueue
+    def stop(self):
+        if self.server is not None:
+            self.server.close()
+        for pid in list(self.secondaries):
+            self.close_fifos(pid)
+        for _ in range(50):                      # wait at most 5 seconds
+            self.collect_children()
+            if not self.children:
+                break
+            time.sleep(0.1)
+        else:
+            logging.error("%d secondary server(s) still running", len(self.children))
