@@ -1,12 +1,22 @@
 """Project settings."""
 
-HOST = "127.0.0.1"        # local connections only
-PORT = 2222               # above 1024: no root privilege needed
+HOST = "127.0.0.1"          # local connections only
+PORT = 2222                 # principal server (d)
+WORKER_PORT = 2223          # secondary server (w), given to the client by d
 
-MAX_CLIENTS = 5           # maximum number of secondary servers at the same time
-MAX_MSG_SIZE = 512        # maximum size of one message, in bytes
-CLIENT_TIMEOUT = 120      # seconds without message before a session is closed
-LOCK_TIMEOUT = 5          # seconds to wait for the access to the shared memory
+MAX_MSG_SIZE = 256          # maximum size of one message, in bytes
 
-SHM_SIZE = 16             # two unsigned 64-bit counters: clients, messages
-MAX_RESTARTS = 3          # restarts of the principal server before giving up
+# Request types accepted from the clients, with their simulated processing time
+# in seconds. It must stay shorter than WATCHDOG_TIMEOUT (see the subject, part 4).
+REQUEST_TYPES = {"requetetype1": 0.5, "requetetype2": 1.0}
+
+CLIENT_TIMEOUT = 2.0        # maximum wait for a message of a client
+WORKER_TIMEOUT = 10.0       # maximum duration of one exchange with the secondary server
+MAX_REQUESTS = 0            # stop the servers after this number of requests (0: no limit)
+
+WATCHDOG_PERIOD = 5.0       # seconds between two pings of the watchdog
+WATCHDOG_TIMEOUT = 3.0      # maximum wait for the answer to a ping
+WATCHDOG_MISSES = 3         # unanswered pings in a row before a server is said frozen
+
+MAX_RESTARTS = 3            # restarts in a row before giving up
+RESTART_DELAY = 2.0         # seconds before a restart

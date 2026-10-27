@@ -1,87 +1,155 @@
-"""Secondary server: handles the session of one client.
+"""Secondary server (w, worker): processes the requests delegated by the principal server.
 
-The shared memory holds two counters (clients, messages). It is only read or
-written between a "REQ" -> "OK" exchange and a "REL" message on the pair of named
-pipes shared with the principal server: this is the mutual exclusion.
+Cycle of one request on the pair of named pipes (ping-pong):
+    1. wait "ping" on dwtube1: a request is in the shared memory;
+    2. read it, write "debuttraitement" and the port of this server, send "pong";
+    3. wait "ping": the principal server has given the port to the client;
+    4. serve the client directly (address and ticket checked, simulated processing),
+       write "fintraitement" or "errtraitement", send "pong".
+Between a "ping" and the next "pong", only this process uses the segment.
 """
+import hmac
 import logging
 import os
 import select
-import struct
+import socket
+import time
+
+import sysv_ipc
 
 from . import config
 from .outils import recv_line, send_line
+from .surveillance import SECONDAIRE, answer_watchdog
 
-COUNTERS = struct.Struct("=QQ")
+log = logging.getLogger("secondaire(w)")
 
 
 class ServeurSecondaire:
 
-    def __init__(self, memory, fifo_read, fifo_write):
-        self.memory = memory
-        self.fifo_read = fifo_read        # principal -> secondary
-        self.fifo_write = fifo_write      # secondary -> principal
+    def __init__(self, mq, segment, dwtube, wdtube):
+        self.mq = mq
+        self.segment = segment
+        self.dwtube = dwtube        # read end of dwtube1: principal -> secondary
+        self.wdtube = wdtube        # write end of wdtube1: secondary -> principal
+        self.server = None
+        self.request = None
+        self.client_ip = None
+        self.ticket = None
 
-    def lock(self):
-        """Ask the principal server for the exclusive access to the shared memory."""
-        os.write(self.fifo_write, b"REQ\n")
-        ready, _, _ = select.select([self.fifo_read], [], [], config.LOCK_TIMEOUT)
-        if not ready:
-            raise TimeoutError("no answer from the principal server")
-        if os.read(self.fifo_read, 16) != b"OK\n":     # b"" when the principal is gone
-            raise ConnectionError("bad answer from the principal server")
-
-    def unlock(self):
-        os.write(self.fifo_write, b"REL\n")
-
-    def update_counters(self, new_client=0, new_message=0):
-        """Add to the counters in shared memory and return their new values."""
-        self.lock()
+    def start(self):
+        """Process requests until the principal server stops. Return the exit code."""
         try:
-            clients, messages = COUNTERS.unpack(self.memory.read(COUNTERS.size))
-            clients += new_client
-            messages += new_message
-            self.memory.write(COUNTERS.pack(clients, messages))
-        finally:
-            self.unlock()                 # the access is released even after an error
-        return clients, messages
-
-    def start(self, connexion, adresse):
-        """Run the session and return the exit code of the process."""
-        client = f"{adresse[0]}:{adresse[1]}"
-        connexion.settimeout(config.CLIENT_TIMEOUT)    # a silent client cannot block forever
-        reader = connexion.makefile("rb")
-        try:
-            clients, _ = self.update_counters(new_client=1)
-            send_line(connexion, f"Bienvenue, vous êtes le client n°{clients}. "
-                                 "Envoyez vos messages (une ligne) ou FIN pour terminer.")
-            while True:
-                msgClient = recv_line(reader)
-                if msgClient.upper() == "FIN":        # exact word: "FINANCE" is a message
-                    logging.info("client %s ended the session", client)
-                    return 0
-                _, messages = self.update_counters(new_message=1)
-                # Only the size is logged, not the content (data minimisation).
-                logging.info("client %s: message of %d characters", client, len(msgClient))
-                send_line(connexion, f"Message n°{messages} reçu ({len(msgClient)} caractères)")
-        except (OSError, ValueError) as e:            # includes timeouts and disconnections
-            logging.warning("client %s: session closed (%r)", client, str(e)[:80])
-            self.say_goodbye(connexion)
-            return 1
-        except KeyboardInterrupt:
-            self.say_goodbye(connexion)
+            self.server = self.listen()
+            log.info("ready on port %d", config.WORKER_PORT)
+            while self.wait_ping():
+                ok = self.begin()
+                self.pong()
+                if not self.wait_ping():
+                    break
+                status = self.serve_client() if ok else "errtraitement"
+                self.segment.write_status(status, 0)
+                self.pong()
             return 0
+        except KeyboardInterrupt:
+            return 0
+        except (OSError, ValueError, sysv_ipc.Error) as e:
+            log.error("stopped on error: %s", e)
+            return 1
         finally:
-            reader.close()
-            connexion.close()
-            os.close(self.fifo_read)
-            os.close(self.fifo_write)
+            self.ticket = None
+            if self.server is not None:
+                self.server.close()
+            os.close(self.dwtube)
+            os.close(self.wdtube)
 
-    @staticmethod
-    def say_goodbye(connexion):
-        """Tell the client that the session is over, if it is still connected."""
+    def listen(self):
+        """Open the socket of the secondary server.
+
+        After a crash, the previous secondary server may still hold the port for a
+        few seconds, so several attempts are made.
+        """
+        for _ in range(5):
+            try:
+                return socket.create_server((config.HOST, config.WORKER_PORT))
+            except OSError as e:
+                log.warning("port %d unavailable (%s), new attempt in 1 s",
+                            config.WORKER_PORT, e)
+                time.sleep(1)
+        raise OSError(f"port {config.WORKER_PORT} unavailable")
+
+    # ------------------------------------------------------------- ping-pong
+
+    def wait_ping(self):
+        """Wait for the next message of d. Return False on "stop" or end of file."""
+        while True:
+            ready, _, _ = select.select([self.dwtube], [], [], 0.5)
+            answer_watchdog(self.mq, SECONDAIRE)
+            if not ready:
+                continue
+            message = os.read(self.dwtube, 16)
+            if message == b"ping\n":
+                return True
+            if message in (b"", b"stop\n"):
+                log.info("stop requested by the principal server")
+                return False
+            raise ValueError(f"unexpected message on dwtube1: {message!r}")
+
+    def pong(self):
+        """Give the segment back to the principal server."""
+        os.write(self.wdtube, b"pong\n")
+
+    # ------------------------------------------------------------- processing
+
+    def begin(self):
+        """Read the request in the segment and answer with the port of this server."""
         try:
-            connexion.settimeout(1)
-            send_line(connexion, "FIN")
-        except OSError as e:
-            logging.debug("FIN not sent: %s", e)
+            self.request, self.client_ip, self.ticket = self.segment.read_request()
+        except ValueError as e:
+            log.warning("errtraitement: %s", e)
+            self.segment.write_status("errtraitement", 0)
+            return False
+        log.info("debuttraitement: %s for %s", self.request, self.client_ip)
+        self.segment.write_status("debuttraitement", config.WORKER_PORT)
+        return True
+
+    def accept_client(self):
+        """Wait for the client announced by d. Other addresses are refused."""
+        deadline = time.monotonic() + 2 * config.CLIENT_TIMEOUT
+        while time.monotonic() < deadline:
+            ready, _, _ = select.select([self.server], [], [], 0.5)
+            answer_watchdog(self.mq, SECONDAIRE)
+            if ready:
+                conn, addr = self.server.accept()
+                if addr[0] == self.client_ip:
+                    return conn
+                log.warning("connection from an unexpected address refused")
+                conn.close()
+        return None
+
+    def serve_client(self):
+        """Serve the client directly. Return the final status of the request."""
+        conn = self.accept_client()
+        if conn is None:
+            log.warning("errtraitement: the client did not come")
+            return "errtraitement"
+        with conn:
+            conn.settimeout(config.CLIENT_TIMEOUT)
+            reader = conn.makefile("rb")
+            try:
+                ticket = recv_line(reader)
+                # Constant-time comparison of the one-time ticket.
+                if not hmac.compare_digest(ticket.encode(), self.ticket.encode()):
+                    log.warning("errtraitement: wrong ticket")
+                    send_line(conn, "refus")
+                    return "errtraitement"
+                data = recv_line(reader)
+                time.sleep(config.REQUEST_TYPES[self.request])   # simulated processing
+                send_line(conn, f"resultat {self.request} : {len(data)} caractères traités")
+            except (OSError, ValueError) as e:
+                log.warning("errtraitement: %s", e)
+                return "errtraitement"
+            finally:
+                reader.close()
+                self.ticket = None
+        log.info("fintraitement: %s", self.request)
+        return "fintraitement"

@@ -1,4 +1,4 @@
-"""Text protocol shared by the client and the secondary server.
+"""Text protocol of the sockets, shared by the client and the servers.
 
 One message is one UTF-8 line ended by '\\n', at most MAX_MSG_SIZE bytes.
 Reading line by line avoids the problem of recv(1024), which can return half a
@@ -24,7 +24,8 @@ def send_line(sock, text):
 def recv_line(reader):
     """Read one message from reader = sock.makefile("rb").
 
-    readline() is bounded, so a client cannot fill the memory with an endless line.
+    readline() is bounded, so the other side cannot fill the memory with an
+    endless line.
     """
     raw = reader.readline(config.MAX_MSG_SIZE + 1)
     if raw == b"":
@@ -34,3 +35,12 @@ def recv_line(reader):
     text = raw[:-1].decode("utf-8")      # UnicodeDecodeError is a ValueError
     check_message(text)
     return text
+
+
+def recv_one(sock):
+    """Read a single message from a socket."""
+    reader = sock.makefile("rb")
+    try:
+        return recv_line(reader)
+    finally:
+        reader.close()

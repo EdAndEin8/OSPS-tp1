@@ -7,8 +7,8 @@ from .starter_serveur import start_servers
 
 def main() -> int:
     logging.basicConfig(level=logging.INFO,
-                        format="%(asctime)s %(levelname)s [pid %(process)d] %(message)s")
-    logging.info("Lancement du projet python de Anton et Arnaud")
+                        format="%(asctime)s %(levelname)-8s %(name)-14s pid=%(process)d  %(message)s")
+    logging.getLogger("main").info("Lancement du projet python de Anton et Arnaud")
     try:
         return start_servers()
     except KeyboardInterrupt:
