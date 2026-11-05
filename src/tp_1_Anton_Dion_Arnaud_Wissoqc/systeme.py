@@ -11,9 +11,9 @@ def fork_process(target, *args):
 
     The child ends with the value returned by target as exit code (1 on error).
     os._exit() is used so that the child never goes back into the code of its
-    parent (loops, finally blocks): no unwanted multiple execution.
+    paren: no unwanted multiple execution.
     """
-    pid = os.fork()                      # raises OSError on failure
+    pid = os.fork()             
     if pid == 0:
         code = 1
         try:
@@ -27,7 +27,6 @@ def fork_process(target, *args):
 
 def wait_child(pid, timeout):
     """Collect a child process within `timeout` seconds (no zombie).
-
     Return its status (as given by os.waitpid), or None if it is still running.
     """
     deadline = time.monotonic() + timeout
@@ -37,6 +36,7 @@ def wait_child(pid, timeout):
             return status
         if time.monotonic() >= deadline:
             return None
+        
         time.sleep(0.2)
 
 
