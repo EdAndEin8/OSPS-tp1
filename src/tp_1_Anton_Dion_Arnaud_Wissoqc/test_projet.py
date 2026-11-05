@@ -8,23 +8,20 @@
 import os
 
 from .client import send_request
+from .systeme import fork_process
 
 SERVED, BUSY, ERROR = 0, 3, 1
 
 
 def child_request(i):
     """Body of one simultaneous client. Its result is given by its exit code."""
-    code = ERROR
     try:
         answer = send_request("requetetype2", f"client simultané {i}")
-        if answer.startswith("resultat"):
-            code = SERVED
-        elif answer == "occupe":
-            code = BUSY
     except (OSError, ValueError):
-        code = ERROR
-    finally:
-        os._exit(code)
+        return ERROR
+    if answer.startswith("resultat"):
+        return SERVED
+    return BUSY if answer == "occupe" else ERROR
 
 
 def main():
@@ -39,12 +36,7 @@ def main():
         ok = ok and answer.startswith("resultat")
 
     print("2) Trois clients simultanés")
-    pids = []
-    for i in range(3):
-        pid = os.fork()
-        if pid == 0:
-            child_request(i)
-        pids.append(pid)
+    pids = [fork_process(child_request, i) for i in range(3)]
     codes = [os.waitstatus_to_exitcode(os.waitpid(pid, 0)[1]) for pid in pids]
     served, busy = codes.count(SERVED), codes.count(BUSY)
     print(f"   servis : {served}, refusés (occupe) : {busy}, "

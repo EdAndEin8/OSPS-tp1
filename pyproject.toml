@@ -1,7 +1,7 @@
 [project]
 name = "tp-1-anton-dion"
 version = "0.1.0"
-description = "OSPS project: client/server with watchdog, named pipes, shared memory and message queue"
+description = "OSPS project: client/server with watchdog, named pipes and shared memory"
 authors = [
     { name = "Anton Dion", email = "ed.and.ein@proton.me" }
 ]

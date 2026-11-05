@@ -12,12 +12,12 @@ from .outils import recv_one, send_line
 
 def send_request(request, data):
     """Run the whole protocol for one request. Return the last answer received."""
-    # Steps 1 to 4: request to d, which answers with the port of w and a ticket.
+    # Steps 1 to 4: request to d, which answers with the port of w.
     with socket.create_connection((config.HOST, config.PORT), timeout=10) as sock:
         send_line(sock, request)
         answer = recv_one(sock)
     words = answer.split()
-    if len(words) != 4 or words[0] != "port" or words[2] != "ticket":
+    if len(words) != 2 or words[0] != "port":
         return answer                       # "occupe", "refus" or "errtraitement"
     port = int(words[1])                    # ValueError if it is not a number
     if not config.PORT < port < 65536:      # the answer of the server is checked too
@@ -26,8 +26,7 @@ def send_request(request, data):
     # Steps 5 and 6: direct connection to w. Only the port comes from the server,
     # the address stays the configured one.
     with socket.create_connection((config.HOST, port), timeout=10) as sock:
-        send_line(sock, words[3])           # one-time ticket
-        send_line(sock, data)               # data to process
+        send_line(sock, data)
         return recv_one(sock)
 
 
