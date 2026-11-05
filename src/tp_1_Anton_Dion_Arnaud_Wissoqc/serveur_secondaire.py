@@ -1,13 +1,3 @@
-"""Secondary server (w, worker): processes the requests delegated by the principal server.
-
-Cycle of one request on the pair of named pipes (ping-pong):
-    1. wait "ping" on dwtube1: a request is in the shared memory;
-    2. read it, write "debuttraitement" and the port of this server, send "pong";
-    3. wait "ping": the principal server has given the port to the client;
-    4. serve the client directly (simulated processing),
-       write "fintraitement" or "errtraitement", send "pong".
-Between a "ping" and the next "pong", only this process uses the segment.
-"""
 import logging
 import os
 import socket
@@ -20,7 +10,7 @@ from .outils import recv_line, send_line
 
 log = logging.getLogger("secondaire(w)")
 
-# Messages of the ping-pong on dwtube1 / wdtube1 (also used by d).
+# Messages of the ping-pong on dwtube1 /wdtube1 (also used by d).
 PING = b"ping\n"
 PONG = b"pong\n"
 STOP = b"stop\n"
@@ -36,6 +26,7 @@ class ServeurSecondaire:
         self.request = None
         self.client_ip = None
 
+
     def start(self):
         """Process requests until the principal server stops. Return the exit code."""
         try:
@@ -50,16 +41,22 @@ class ServeurSecondaire:
                 self.segment.write_status(status, 0)
                 self.pong()
             return 0
+        
         except KeyboardInterrupt:
             return 0
+        
         except (OSError, ValueError, sysv_ipc.Error) as e:
             log.error("stopped on error: %s", e)
             return 1
+        
         finally:
             if self.server is not None:
                 self.server.close()
+
             os.close(self.dwtube)
             os.close(self.wdtube)
+
+
 
     def listen(self):
         """Open the socket of the secondary server.
@@ -70,10 +67,12 @@ class ServeurSecondaire:
         for _ in range(5):
             try:
                 return socket.create_server((config.HOST, config.WORKER_PORT))
+            
             except OSError as e:
                 log.warning("port %d unavailable (%s), new attempt in 1 s",
                             config.WORKER_PORT, e)
                 time.sleep(1)
+
         raise OSError(f"port {config.WORKER_PORT} unavailable")
 
     # ------------------------------------------------------------- ping-pong
@@ -83,9 +82,11 @@ class ServeurSecondaire:
         message = os.read(self.dwtube, 16)
         if message == PING:
             return True
+        
         if message in (b"", STOP):
             log.info("stop requested by the principal server")
             return False
+        
         raise ValueError(f"unexpected message on dwtube1: {message!r}")
 
     def pong(self):
@@ -98,10 +99,12 @@ class ServeurSecondaire:
         """Read the request in the segment and answer with the port of this server."""
         try:
             self.request, self.client_ip = self.segment.read_request()
+
         except ValueError as e:
             log.warning("errtraitement: %s", e)
             self.segment.write_status("errtraitement", 0)
             return False
+        
         log.info("debuttraitement: %s for %s", self.request, self.client_ip)
         self.segment.write_status("debuttraitement", config.WORKER_PORT)
         return True
@@ -109,25 +112,33 @@ class ServeurSecondaire:
     def serve_client(self):
         """Serve the client announced by d. Return the final status of the request."""
         self.server.settimeout(2 * config.CLIENT_TIMEOUT)
+
         try:
             conn, addr = self.server.accept()
+
         except TimeoutError:
             log.warning("errtraitement: the client did not come")
             return "errtraitement"
+        
         with conn:
             if addr[0] != self.client_ip:
                 log.warning("errtraitement: connection from an unexpected address")
                 return "errtraitement"
+            
             conn.settimeout(config.CLIENT_TIMEOUT)
             reader = conn.makefile("rb")
+
             try:
                 data = recv_line(reader)
                 time.sleep(config.REQUEST_TYPES[self.request])   # simulated processing
                 send_line(conn, f"resultat {self.request} : {len(data)} caractères traités")
+
             except (OSError, ValueError) as e:
                 log.warning("errtraitement: %s", e)
                 return "errtraitement"
+            
             finally:
                 reader.close()
+                
         log.info("fintraitement: %s", self.request)
         return "fintraitement"
